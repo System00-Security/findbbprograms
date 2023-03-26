@@ -30,10 +30,4 @@ Accidental Bug Happens find the program and report it
 
 ```
 
-```yaml
-Support Project:
-       BTC : bc1qdux8dgjujycrmkma4sm5w3feh4zu6t3gkra5wx
-       ETH : 0x97C97b1A762009C876275f0Efa648f09bcF6D27F
-```
-
  
