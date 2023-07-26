@@ -6,6 +6,8 @@ import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, render_template_string
+from werkzeug.utils import secure_filename
+import os
 
 user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36'
 headers = {'User-Agent': user_agent}
@@ -32,9 +34,17 @@ bootstrap_template = """
       <label for="domain" class="form-label">Domain:</label>
       <input type="text" class="form-control" name="domain" id="domain" required>
     </div>
-    <button type="submit" class="btn btn-primary">Search</button>
+    <button type="submit" class="btn btn-primary">Search Single Domain</button>
   </form>
-  {% if program_info %}
+  <br>
+  <form method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label for="file" class="form-label">Upload File:</label>
+      <input type="file" class="form-control" name="file" id="file">
+    </div>
+    <button type="submit" class="btn btn-primary">Search Multiple Domains</button>
+  </form>
+  {% if results %}
     <div class="mt-4">
       <h2>Search Result</h2>
       <style>
@@ -43,7 +53,12 @@ bootstrap_template = """
         text-decoration: none;
       }
       </style>
-      <div class='alert alert-success' role='alert'><a href='{{ program_info }}'>{{ program_info }}</a></div>
+      {% for result in results %}
+      <div class='alert alert-success' role='alert'>
+        <a href='{{ result["program_url"] }}'>{{ result["program_url"] }}</a><br>
+        Result For: {{ result["search_link"] }}
+      </div>
+      {% endfor %}
     </div>
   {% endif %}
 </body>
@@ -73,7 +88,10 @@ class FindBBProgram:
             self.programs_data = self.fetch_data("https://raw.githubusercontent.com/disclose/diodb/master/program-list.json")
         for i in self.programs_data:
             if i['program_name'] == domain:
-                return f"{Fore.GREEN}[Found Program]{Fore.RESET} {i['contact_url']}"
+                return {
+                    "program_url": i['contact_url'],
+                    "search_link": f"{p.quote(domain)}"
+                }
         return None
 
     def api2(self, domain):
@@ -81,7 +99,10 @@ class FindBBProgram:
             self.programs_data = self.fetch_data("https://raw.githubusercontent.com/projectdiscovery/public-bugbounty-programs/master/chaos-bugbounty-list.json")
         for i in self.programs_data['programs']:
             if domain in i['domains']:
-                return f"{Fore.GREEN}[Found Program]{Fore.RESET} {i['url']}"
+                return {
+                    "program_url": i['url'],
+                    "search_link": f"{p.quote(domain)}"
+                }
         return None
 
     def api3(self, domain):
@@ -93,7 +114,10 @@ class FindBBProgram:
                     data = data['targets']
                     for i in data:
                         if domain in i['domains']:
-                            return f"{Fore.GREEN}[Found Program]{Fore.RESET} {i['url']}"
+                            return {
+                                "program_url": i['url'],
+                                "search_link": f"{p.quote(domain)}"
+                            }
                 return None
         except requests.ConnectionError:
             return None
@@ -112,7 +136,6 @@ class FindBBProgram:
         program_info = self.search_program(domain)
         return program_info
 
-# Custom log handler for Flask
 class CustomLogHandler(logging.StreamHandler):
     def emit(self, record):
         log_msg = self.format(record)
@@ -131,14 +154,34 @@ app.logger.addHandler(CustomLogHandler())
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        domain = request.form["domain"]
-        program_info = FindBBProgram().engine(domain)
-        if program_info:
-            program_info = program_info.replace("[32m[Found Program][39m","")
-            program_info = program_info.replace("[39m","")
-            program_info = program_info.replace("[33m[WARN][39m","")
-            program_info = program_info.replace("[39m","")
-        return render_template_string(bootstrap_template, program_info=program_info)
+        if "domain" in request.form:
+            domain = request.form["domain"]
+            result = FindBBProgram().engine(domain)
+            if result:
+                results = [result]
+            else:
+                results = []
+            return render_template_string(bootstrap_template, results=results)
+
+        elif "file" in request.files:
+            file = request.files["file"]
+
+            if file:
+                filename = secure_filename(file.filename)
+                file_path = os.path.join("uploads", filename)
+                file.save(file_path)
+                with open(file_path, "r") as f:
+                    domains = f.read().splitlines()
+
+                program_info_list = []
+                for domain in domains:
+                    result = FindBBProgram().engine(domain)
+                    if result:
+                        program_info_list.append(result)
+                os.remove(file_path)
+
+                return render_template_string(bootstrap_template, results=program_info_list)
+
     return render_template_string(bootstrap_template)
 
 if __name__ == "__main__":
@@ -154,6 +197,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FindBB Program Search")
     parser.add_argument("-web", action="store_true", help="Enable the web-based search UI")
     parser.add_argument("-d", "--domain", help="Domain to search")
+    parser.add_argument("-f", "--file", help="File containing domains to search")
     args = parser.parse_args()
 
     if args.domain:
@@ -161,12 +205,27 @@ if __name__ == "__main__":
             app.logger.warning("Please provide a domain to search using -d option.")
         else:
             domain = args.domain
-            program_info = FindBBProgram().engine(domain)
-            if program_info:
-                print(program_info)
+            result = FindBBProgram().engine(domain)
+            if result:
+                url = result["program_url"]
+                print(f"{Fore.GREEN}[Program Link] {Fore.RESET}{url}")
             else:
                 app.logger.warning("No Program Found")
+    elif args.file:
+        if args.file == "":
+            app.logger.warning("Please provide a file containing domains to search using -f option.")
+        else:
+            with open(args.file, "r") as f:
+                for domain in f.read().splitlines():
+                    result = FindBBProgram().engine(domain)
+                    if result:
+                        url = result["program_url"]
+                        print(f"{Fore.GREEN}[Program Link] {Fore.RESET}{url}")
+                    else:
+                        app.logger.warning(f"No Program Found for {domain}")
     elif args.web:
+        if not os.path.exists("uploads"):
+            os.makedirs("uploads")
         app.run(host="127.0.0.1", port=5000, debug=True)
     else:
         parser.print_help()
