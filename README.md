@@ -29,12 +29,17 @@ To use the command-line interface, run the `main.py` script and provide the doma
 ```bash
 python findbbV2.py -d example.com
 ```
+or to search multiple files in command line you can use the `-f` option
+
+```bash
+python findbbV2.py -f allbb.txt
+```
 
 This will search for bug bounty programs related to the domain "example.com" and provide you with the relevant program information.
 
 ### Web-based Interface
 <div style="text-align:center">
-    <img src="https://i.ibb.co/BGcXqKS/image.png" alt="Image" />
+    <img src="https://i.ibb.co/DKdw7sv/image.png" alt="Image" />
 </div>
 
 If you prefer a web-based interface, you can enable the web mode using the `-web` option:
